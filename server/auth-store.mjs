@@ -241,11 +241,29 @@ export class AuthStore {
   }
 
   listParties(userId) {
-    const rows = this.database.prepare(
-      `SELECT DISTINCT parties.id FROM parties LEFT JOIN party_members ON party_members.party_id=parties.id
+    const parties = this.database.prepare(
+      `SELECT DISTINCT parties.id,parties.name,parties.invite_code AS inviteCode,
+       parties.dm_id AS dmId,users.display_name AS dmName FROM parties
+       JOIN users ON users.id=parties.dm_id
+       LEFT JOIN party_members ON party_members.party_id=parties.id
        WHERE parties.dm_id=? OR party_members.user_id=? ORDER BY parties.id DESC`,
     ).all(userId, userId);
-    return rows.map(({ id }) => this.findParty(id, userId));
+    if (!parties.length) return [];
+    const placeholders = parties.map(() => '?').join(',');
+    const members = this.database.prepare(
+      `SELECT party_members.party_id AS partyId,users.id,users.display_name AS displayName,
+       characters.id AS characterId,characters.name AS characterName FROM party_members
+       JOIN users ON users.id=party_members.user_id
+       LEFT JOIN characters ON characters.id=party_members.character_id
+       WHERE party_members.party_id IN (${placeholders})`,
+    ).all(...parties.map(({ id }) => id));
+    return parties.map((party) => {
+      const visible = party.dmId === userId
+        ? { ...party }
+        : (({ inviteCode: _, ...withoutInvite }) => withoutInvite)(party);
+      return { ...visible, members: members.filter((member) => member.partyId === party.id)
+        .map(({ partyId: _, ...member }) => member) };
+    });
   }
 
   findParty(id, viewerId) {
@@ -257,7 +275,7 @@ export class AuthStore {
     ).get(id, viewerId, viewerId);
     if (!party) return null;
     const visibleParty = party.dmId === viewerId
-      ? party
+      ? { ...party }
       : (({ inviteCode: _, ...withoutInvite }) => withoutInvite)(party);
     visibleParty.members = this.database.prepare(
       `SELECT users.id,users.display_name AS displayName,characters.id AS characterId,

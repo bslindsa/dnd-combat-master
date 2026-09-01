@@ -211,8 +211,8 @@ export function createAuthApp({
     app.get('/api/parties', requireUser, (request, response) =>
       response.json({ parties: store.listParties(request.user.id) }));
     app.post('/api/parties', requireUser, (request, response) => {
-      const name = typeof request.body?.name === 'string' ? request.body.name.trim() : '';
       if (request.user.role !== 'Dungeon Master') return response.status(403).json({ error: 'DM access required.' });
+      const name = typeof request.body?.name === 'string' ? request.body.name.trim() : '';
       if (!name || name.length > 80) return response.status(400).json({ error: 'Party name is required.' });
       const inviteCode = randomBytes(5).toString('hex').toUpperCase();
       return response.status(201).json({ party: store.createParty(request.user.id, name, inviteCode) });
