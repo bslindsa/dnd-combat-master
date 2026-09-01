@@ -1,9 +1,19 @@
 import express from 'express';
+import { rateLimit } from 'express-rate-limit';
 import { AuthStore } from './auth-store.mjs';
 
 const COOKIE_NAME = 'encounter_session';
 const VALID_ROLES = new Set(['Dungeon Master', 'Player']);
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isValidEmail(email) {
+  if (email.length < 3 || email.length > 254) return false;
+  for (const character of email) {
+    if (character.trim() === '') return false;
+  }
+  const at = email.indexOf('@');
+  const dot = email.lastIndexOf('.');
+  return at > 0 && at <= 64 && at === email.lastIndexOf('@') && dot > at + 1 && dot < email.length - 1;
+}
 
 function readCookie(request, name) {
   const cookies = request.headers.cookie?.split(';') ?? [];
@@ -21,7 +31,7 @@ function validateRegistration(body) {
   const password = typeof body.password === 'string' ? body.password : '';
   const role = body.role;
 
-  if (!EMAIL_PATTERN.test(email)) return { error: 'Enter a valid email address.' };
+  if (!isValidEmail(email)) return { error: 'Enter a valid email address.' };
   if (displayName.length < 2 || displayName.length > 60) {
     return { error: 'Display name must be between 2 and 60 characters.' };
   }
@@ -40,6 +50,12 @@ export function createAuthApp({
   const store = new AuthStore(databasePath);
   app.disable('x-powered-by');
   app.use(express.json({ limit: '16kb' }));
+  const credentialLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 20,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+  });
 
   app.use('/api/auth', (request, response, next) => {
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return next();
@@ -66,7 +82,7 @@ export function createAuthApp({
     });
   };
 
-  app.post('/api/auth/register', async (request, response, next) => {
+  app.post('/api/auth/register', credentialLimiter, async (request, response, next) => {
     try {
       const registration = validateRegistration(request.body ?? {});
       if (registration.error) return response.status(400).json({ error: registration.error });
@@ -81,7 +97,7 @@ export function createAuthApp({
     }
   });
 
-  app.post('/api/auth/login', async (request, response, next) => {
+  app.post('/api/auth/login', credentialLimiter, async (request, response, next) => {
     try {
       const email = typeof request.body?.email === 'string' ? request.body.email.trim().toLowerCase() : '';
       const password = typeof request.body?.password === 'string' ? request.body.password : '';
