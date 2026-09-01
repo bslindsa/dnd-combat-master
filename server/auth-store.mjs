@@ -366,11 +366,39 @@ export class AuthStore {
   }
 
   listEncounters(userId) {
-    return this.database.prepare(
-      `SELECT DISTINCT encounters.id FROM encounters JOIN parties ON parties.id=encounters.party_id
+    const encounters = this.database.prepare(
+      `SELECT DISTINCT encounters.* FROM encounters JOIN parties ON parties.id=encounters.party_id
        LEFT JOIN party_members ON party_members.party_id=parties.id
        WHERE encounters.dm_id=? OR party_members.user_id=? ORDER BY encounters.created_at DESC`,
-    ).all(userId, userId).map(({ id }) => this.getEncounter(id, userId));
+    ).all(userId, userId);
+    if (!encounters.length) return [];
+    const ids = encounters.map(({ id }) => id);
+    const placeholders = ids.map(() => '?').join(',');
+    const combatants = this.database.prepare(
+      `SELECT id,encounter_id AS encounterId,user_id AS userId,source_type AS sourceType,
+       source_id AS sourceId,name,armor_class AS armorClass,max_hp AS maxHp,current_hp AS currentHp,
+       initiative,abilities,conditions FROM combatants WHERE encounter_id IN (${placeholders})
+       ORDER BY initiative DESC,id`,
+    ).all(...ids).map((row) => ({
+      ...row, abilities: JSON.parse(row.abilities), conditions: JSON.parse(row.conditions),
+    }));
+    const logs = this.database.prepare(
+      `WITH ranked AS (SELECT id,encounter_id AS encounterId,message,roll_data AS rollData,
+       created_at AS createdAt,ROW_NUMBER() OVER(PARTITION BY encounter_id ORDER BY id DESC) AS rank
+       FROM combat_log WHERE encounter_id IN (${placeholders}))
+       SELECT id,encounterId,message,rollData,createdAt FROM ranked WHERE rank<=50 ORDER BY id DESC`,
+    ).all(...ids).map((row) => ({
+      ...row, rollData: row.rollData ? JSON.parse(row.rollData) : null,
+    }));
+    return encounters.map((encounter) => ({
+      id: encounter.id, partyId: encounter.party_id, dmId: encounter.dm_id, name: encounter.name,
+      status: encounter.status, round: encounter.round, turnIndex: encounter.turn_index,
+      actionTaken: Boolean(encounter.action_taken),
+      combatants: combatants.filter(({ encounterId }) => encounterId === encounter.id)
+        .map(({ encounterId: _, ...combatant }) => combatant),
+      logs: logs.filter(({ encounterId }) => encounterId === encounter.id)
+        .map(({ encounterId: _, ...log }) => log),
+    }));
   }
 
   getEncounter(id, userId) {

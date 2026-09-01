@@ -165,7 +165,7 @@ export class Dashboard {
   protected takeAction() {
     const encounter = this.activeEncounter();
     const action = this.actionForm.getRawValue();
-    if (!encounter || !action.targetId) return;
+    if (!encounter || encounter.actionTaken || !action.targetId) return;
     this.game.act(encounter.id, { ...action, targetId: action.targetId }).subscribe({
       next: ({ encounter: current }) => this.activeEncounter.set(current),
       error: ({ error }) => this.message.set(error?.error ?? 'Action could not be completed.'),
