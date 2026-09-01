@@ -45,7 +45,7 @@
         </div>
       </div>
 
-      <div class="encounter-card" aria-label="Example live encounter">
+      <div class="encounter-card" role="region" aria-label="Example live encounter">
         <div class="card-heading">
           <div>
             <span class="live-dot"></span>
@@ -115,7 +115,7 @@
       <h2 id="login-title">Welcome, adventurer.</h2>
       <p>Choose your role and sign in to continue your story.</p>
 
-      <div class="role-picker" aria-label="Choose your role">
+      <div class="role-picker" role="group" aria-label="Choose your role">
         <button type="button" [class.selected]="role() === 'Dungeon Master'" (click)="selectRole('Dungeon Master')">
           <span>♜</span><b>Dungeon Master</b><small>Build worlds &amp; run encounters</small>
         </button>
