@@ -81,3 +81,14 @@ test('logs in and invalidates the session on logout', async () => {
   const session = await fetch(`${baseUrl}/api/auth/session`, { headers: { cookie } });
   assert.equal(session.status, 401);
 });
+
+test('rejects malformed and cross-origin mutation requests', async () => {
+  for (const origin of ['null', 'https://malicious.example']) {
+    const response = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin },
+      body: JSON.stringify({ email: 'dm@example.com', password: 'roll-for-initiative' }),
+    });
+    assert.equal(response.status, 403);
+  }
+});

@@ -140,7 +140,7 @@
           <small class="field-error">Enter a valid email address.</small>
         }
         <label for="password">Password</label>
-        <input id="password" type="password" formControlName="password" autocomplete="current-password" placeholder="At least 8 characters" />
+        <input id="password" type="password" formControlName="password" [attr.autocomplete]="creatingAccount() ? 'new-password' : 'current-password'" placeholder="At least 8 characters" />
         @if (loginForm.controls.password.touched && loginForm.controls.password.invalid) {
           <small class="field-error">Password must be at least 8 characters.</small>
         }

@@ -21,8 +21,9 @@ async function passwordMatches(password, encodedHash) {
   const [saltHex, hashHex] = encodedHash.split(':');
   if (!saltHex || !hashHex) return false;
   const expected = Buffer.from(hashHex, 'hex');
-  const actual = await scrypt(password, Buffer.from(saltHex, 'hex'), expected.length);
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
+  if (expected.length !== 64) return false;
+  const actual = await scrypt(password, Buffer.from(saltHex, 'hex'), 64);
+  return timingSafeEqual(expected, actual);
 }
 
 export class AuthStore {

@@ -44,7 +44,12 @@ export function createAuthApp({
   app.use('/api/auth', (request, response, next) => {
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return next();
     const origin = request.get('origin');
-    if (origin && new URL(origin).host !== request.get('host')) {
+    if (origin) {
+      try {
+        if (new URL(origin).host === request.get('host')) return next();
+      } catch {
+        // Invalid and opaque origins are not trusted.
+      }
       return response.status(403).json({ error: 'Cross-origin request rejected.' });
     }
     return next();
