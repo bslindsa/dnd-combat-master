@@ -277,5 +277,20 @@ test('runs an authorized combat round with shared server-side rolls', async () =
           method: 'POST', headers: { 'content-type': 'application/json', cookie: dmCookie }, body: '{}',
         });
         assert.equal(advanced.status, 200);
-        assert.notEqual((await advanced.json()).encounter.turnIndex, encounter.turnIndex);
+        const nextEncounter = (await advanced.json()).encounter;
+        assert.notEqual(nextEncounter.turnIndex, encounter.turnIndex);
+        const nextActor = nextEncounter.combatants[nextEncounter.turnIndex];
+        const healing = await fetch(`${baseUrl}/api/encounters/${encounter.id}/actions`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            cookie: nextActor.sourceType === 'character' ? playerCookie : dmCookie,
+          },
+          body: JSON.stringify({
+            type: 'heal', targetId: nextActor.id, ability: 'wisdom', damageDie: 4,
+          }),
+        });
+        const healed = (await healing.json()).encounter;
+        assert.equal(healed.logs[0].rollData.type, 'heal');
+        assert.ok(healed.logs[0].rollData.die >= 1 && healed.logs[0].rollData.die <= 4);
 });

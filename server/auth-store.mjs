@@ -414,10 +414,10 @@ export class AuthStore {
     if ((action.type === 'attack' && actor.sourceType === target.sourceType) ||
         (action.type === 'heal' && actor.sourceType !== target.sourceType)) return 'INVALID_TARGET';
     const modifier = Math.floor((actor.abilities[action.ability] - 10) / 2);
-    const roll = roller(20);
     let message;
     let rollData;
     if (action.type === 'attack') {
+      const roll = roller(20);
       const total = roll + modifier;
       const hit = roll === 20 || (roll !== 1 && total >= target.armorClass);
       const damage = hit
@@ -429,12 +429,13 @@ export class AuthStore {
       message = `${actor.name} attacks ${target.name}: ${total} to hit — ${hit ? `${damage} damage` : 'miss'}.`;
       rollData = { type: 'attack', die: roll, modifier, total, hit, damage, critical: roll === 20 };
     } else {
-      const amount = Math.max(1, roller(action.damageDie) + modifier);
+      const die = roller(action.damageDie);
+      const amount = Math.max(1, die + modifier);
       this.database.prepare(
         'UPDATE combatants SET current_hp=MIN(max_hp,current_hp+?) WHERE id=? AND encounter_id=?',
       ).run(amount, target.id, encounterId);
       message = `${actor.name} restores ${amount} HP to ${target.name}.`;
-      rollData = { type: 'heal', die: roll, modifier, amount };
+      rollData = { type: 'heal', die, dieSize: action.damageDie, modifier, amount };
     }
     this.database.prepare('UPDATE encounters SET action_taken=1 WHERE id=?').run(encounterId);
     this.addCombatLog(encounterId, message, rollData);
@@ -446,10 +447,19 @@ export class AuthStore {
     if (!encounter || encounter.dmId !== dmId || encounter.status !== 'active') return null;
     let next = encounter.turnIndex;
     let round = encounter.round;
+    let foundLiving = false;
     for (let count = 0; count < encounter.combatants.length; count += 1) {
       next = (next + 1) % encounter.combatants.length;
       if (next === 0) round += 1;
-      if (encounter.combatants[next].currentHp > 0) break;
+      if (encounter.combatants[next].currentHp > 0) {
+        foundLiving = true;
+        break;
+      }
+    }
+    if (!foundLiving) {
+      this.database.prepare(`UPDATE encounters SET status='completed' WHERE id=?`).run(encounterId);
+      this.addCombatLog(encounterId, 'All combatants are defeated. The encounter ends.');
+      return this.getEncounter(encounterId, dmId);
     }
     this.database.prepare(
       'UPDATE encounters SET turn_index=?,round=?,action_taken=0 WHERE id=?',
