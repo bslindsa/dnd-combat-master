@@ -43,31 +43,52 @@ test('registers a user and restores the cookie session', async () => {
 });
 
 test('rejects duplicate registrations and invalid credentials', async () => {
+  const account = {
+    email: 'duplicate@example.com',
+    displayName: 'Duplicate Guide',
+    password: 'roll-for-initiative',
+    role: 'Dungeon Master',
+  };
+  const initial = await fetch(`${baseUrl}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(account),
+  });
+  assert.equal(initial.status, 201);
+
   const duplicate = await fetch(`${baseUrl}/api/auth/register`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      email: 'DM@example.com',
-      displayName: 'Another Guide',
-      password: 'roll-for-initiative',
-      role: 'Dungeon Master',
-    }),
+    body: JSON.stringify({ ...account, email: 'DUPLICATE@example.com' }),
   });
   assert.equal(duplicate.status, 409);
 
   const login = await fetch(`${baseUrl}/api/auth/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: 'dm@example.com', password: 'incorrect' }),
+    body: JSON.stringify({ email: account.email, password: 'incorrect' }),
   });
   assert.equal(login.status, 401);
 });
 
 test('logs in and invalidates the session on logout', async () => {
+  const account = {
+    email: 'logout@example.com',
+    displayName: 'Logout Guide',
+    password: 'roll-for-initiative',
+    role: 'Player',
+  };
+  const registration = await fetch(`${baseUrl}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(account),
+  });
+  assert.equal(registration.status, 201);
+
   const login = await fetch(`${baseUrl}/api/auth/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: 'dm@example.com', password: 'roll-for-initiative' }),
+    body: JSON.stringify({ email: account.email, password: account.password }),
   });
   assert.equal(login.status, 200);
   const cookie = login.headers.get('set-cookie').split(';')[0];
