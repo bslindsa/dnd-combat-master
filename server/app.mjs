@@ -1,6 +1,6 @@
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { AuthStore } from './auth-store.mjs';
 
 const COOKIE_NAME = 'encounter_session';
@@ -223,6 +223,59 @@ export function createAuthApp({
       if (party === false) return response.status(400).json({ error: 'Choose one of your own characters.' });
       return party ? response.json({ party }) : response.status(404).json({ error: 'Invite code not found.' });
     });
+
+  app.get('/api/encounters', requireUser, (request, response) =>
+    response.json({ encounters: store.listEncounters(request.user.id) }));
+  app.post('/api/encounters', requireUser, (request, response) => {
+    if (request.user.role !== 'Dungeon Master') return response.status(403).json({ error: 'DM access required.' });
+    const name = typeof request.body?.name === 'string' ? request.body.name.trim() : '';
+    const partyId = Number(request.body?.partyId);
+    const monsterIds = Array.isArray(request.body?.monsterIds)
+      ? request.body.monsterIds.map(Number).filter(Number.isInteger) : [];
+    if (!name || name.length > 80 || !Number.isInteger(partyId) || monsterIds.length > 30) {
+      return response.status(400).json({ error: 'Choose a party and provide a valid encounter name.' });
+    }
+    const encounter = store.createEncounter(request.user.id, partyId, name, monsterIds,
+      (dexterity) => randomInt(1, 21) + Math.floor((dexterity - 10) / 2));
+    if (encounter === false) return response.status(400).json({ error: 'Choose monsters from your library.' });
+    if (encounter === 'NOT_ENOUGH_COMBATANTS') {
+      return response.status(400).json({ error: 'An encounter needs at least two combatants.' });
+    }
+    return encounter ? response.status(201).json({ encounter }) :
+      response.status(404).json({ error: 'Party not found.' });
+  });
+  app.get('/api/encounters/:id', requireUser, (request, response) => {
+    const encounter = store.getEncounter(Number(request.params.id), request.user.id);
+    return encounter ? response.json({ encounter }) :
+      response.status(404).json({ error: 'Encounter not found.' });
+  });
+  app.post('/api/encounters/:id/actions', requireUser, (request, response) => {
+    const type = request.body?.type;
+    const ability = request.body?.ability;
+    const targetId = Number(request.body?.targetId);
+    const damageDie = Number(request.body?.damageDie);
+    if (!['attack', 'heal'].includes(type) || !ABILITY_NAMES.includes(ability) ||
+        !Number.isInteger(targetId) || ![4, 6, 8, 10, 12].includes(damageDie)) {
+      return response.status(400).json({ error: 'Choose a valid action, ability, die, and target.' });
+    }
+    const encounter = store.performCombatAction(
+      Number(request.params.id), request.user.id, { type, ability, targetId, damageDie },
+      (sides) => randomInt(1, sides + 1),
+    );
+    if (encounter === false) return response.status(403).json({ error: 'It is not your turn.' });
+    if (encounter === 'ACTION_TAKEN') return response.status(409).json({ error: 'This turn’s action is already spent.' });
+    if (encounter === 'INVALID_TARGET') return response.status(400).json({ error: 'Target not found.' });
+    return encounter ? response.json({ encounter }) :
+      response.status(404).json({ error: 'Active encounter not found.' });
+  });
+  app.post('/api/encounters/:id/next', requireUser, (request, response) => {
+    const encounter = store.advanceTurn(Number(request.params.id), request.user.id);
+    return encounter ? response.json({ encounter }) :
+      response.status(403).json({ error: 'Only the DM can advance this encounter.' });
+  });
+  app.post('/api/encounters/:id/end', requireUser, (request, response) =>
+    store.endEncounter(Number(request.params.id), request.user.id) ?
+      response.status(204).send() : response.status(403).json({ error: 'Only the DM can end this encounter.' }));
   app.use((error, _request, response, _next) => {
     console.error(error);
     response.status(500).json({ error: 'Unable to complete the request.' });

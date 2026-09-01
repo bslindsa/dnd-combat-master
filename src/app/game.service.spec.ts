@@ -42,4 +42,14 @@ describe('GameService', () => {
     expect(request.request.body).toEqual({ inviteCode: 'A1B2C3', characterId: 4 });
     request.flush({ party: {} });
   });
+
+  it('submits a server-authoritative combat action', () => {
+    service.act(7, { type: 'attack', targetId: 3, ability: 'strength', damageDie: 8 }).subscribe();
+    const request = http.expectOne('/api/encounters/7/actions');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body).toEqual({
+      type: 'attack', targetId: 3, ability: 'strength', damageDie: 8,
+    });
+    request.flush({ encounter: {} });
+  });
 });

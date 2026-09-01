@@ -31,6 +31,7 @@ describe('App', () => {
     listCharacters: vi.fn(() => of({ characters: [] })),
     listMonsters: vi.fn(() => of({ monsters: [] })),
     listParties: vi.fn(() => of({ parties: [] })),
+    listEncounters: vi.fn(() => of({ encounters: [] })),
   };
 
   beforeEach(async () => {

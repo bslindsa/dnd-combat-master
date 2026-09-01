@@ -195,20 +195,87 @@ test('creates a party and lets a player join with an owned character', async () 
           armorClass: 18, hitPoints: 41, speed: 30, abilities: abilityScores, notes: '',
         }),
       });
+
       const characterId = (await characterResponse.json()).character.id;
       const createParty = await fetch(`${baseUrl}/api/parties`, {
         method: 'POST', headers: { 'content-type': 'application/json', cookie: dmCookie },
         body: JSON.stringify({ name: 'The Dawn Guard' }),
       });
       const party = (await createParty.json()).party;
-
       const join = await fetch(`${baseUrl}/api/parties/join`, {
         method: 'POST', headers: { 'content-type': 'application/json', cookie: playerCookie },
         body: JSON.stringify({ inviteCode: party.inviteCode, characterId }),
       });
       assert.equal(join.status, 200);
       assert.equal((await join.json()).party.members[0].characterName, 'Thorne');
-
       const dmParties = await fetch(`${baseUrl}/api/parties`, { headers: { cookie: dmCookie } });
       assert.equal((await dmParties.json()).parties[0].members[0].displayName, 'party-player');
+});
+
+test('runs an authorized combat round with shared server-side rolls', async () => {
+        const dmCookie = await register('combat-dm@example.com', 'Dungeon Master');
+        const playerCookie = await register('combat-player@example.com');
+        const outsiderCookie = await register('combat-outsider@example.com');
+        const monsterResponse = await fetch(`${baseUrl}/api/monsters`, {
+          method: 'POST', headers: { 'content-type': 'application/json', cookie: dmCookie },
+          body: JSON.stringify({
+            name: 'Skeleton', size: 'Medium', creatureType: 'Undead', challengeRating: '1/4',
+            armorClass: 13, hitPoints: 13, speed: 30, abilities: abilityScores, actions: 'Shortsword',
+          }),
+        });
+        const monsterId = (await monsterResponse.json()).monster.id;
+        const characterResponse = await fetch(`${baseUrl}/api/characters`, {
+          method: 'POST', headers: { 'content-type': 'application/json', cookie: playerCookie },
+          body: JSON.stringify({
+            name: 'Kael', className: 'Fighter', species: 'Human', level: 2,
+            armorClass: 16, hitPoints: 22, speed: 30, abilities: abilityScores, notes: '',
+          }),
+        });
+        const characterId = (await characterResponse.json()).character.id;
+        const partyResponse = await fetch(`${baseUrl}/api/parties`, {
+          method: 'POST', headers: { 'content-type': 'application/json', cookie: dmCookie },
+          body: JSON.stringify({ name: 'Combat Party' }),
+        });
+        const party = (await partyResponse.json()).party;
+        await fetch(`${baseUrl}/api/parties/join`, {
+          method: 'POST', headers: { 'content-type': 'application/json', cookie: playerCookie },
+          body: JSON.stringify({ inviteCode: party.inviteCode, characterId }),
+        });
+        const encounterResponse = await fetch(`${baseUrl}/api/encounters`, {
+          method: 'POST', headers: { 'content-type': 'application/json', cookie: dmCookie },
+          body: JSON.stringify({ name: 'Crypt Battle', partyId: party.id, monsterIds: [monsterId] }),
+        });
+        assert.equal(encounterResponse.status, 201);
+        const encounter = (await encounterResponse.json()).encounter;
+        assert.equal(encounter.combatants.length, 2);
+        assert.ok(encounter.combatants.every(({ initiative }) => initiative >= 0 && initiative <= 25));
+
+        const actor = encounter.combatants[encounter.turnIndex];
+        const target = encounter.combatants.find(({ id }) => id !== actor.id);
+        const actorCookie = actor.sourceType === 'character' ? playerCookie : dmCookie;
+        const denied = await fetch(`${baseUrl}/api/encounters/${encounter.id}/actions`, {
+          method: 'POST', headers: { 'content-type': 'application/json', cookie: outsiderCookie },
+          body: JSON.stringify({ type: 'attack', targetId: target.id, ability: 'strength', damageDie: 8 }),
+        });
+        assert.equal(denied.status, 404);
+
+        const action = await fetch(`${baseUrl}/api/encounters/${encounter.id}/actions`, {
+          method: 'POST', headers: { 'content-type': 'application/json', cookie: actorCookie },
+          body: JSON.stringify({ type: 'attack', targetId: target.id, ability: 'strength', damageDie: 8 }),
+        });
+        assert.equal(action.status, 200);
+        const acted = (await action.json()).encounter;
+        assert.equal(acted.logs[0].rollData.type, 'attack');
+        assert.match(acted.logs[0].message, /attacks/);
+        const repeated = await fetch(`${baseUrl}/api/encounters/${encounter.id}/actions`, {
+          method: 'POST', headers: { 'content-type': 'application/json', cookie: actorCookie },
+          body: JSON.stringify({ type: 'attack', targetId: target.id, ability: 'strength', damageDie: 8 }),
+        });
+        assert.equal(repeated.status, 409);
+
+        const advanced = await fetch(`${baseUrl}/api/encounters/${encounter.id}/next`, {
+          method: 'POST', headers: { 'content-type': 'application/json', cookie: dmCookie }, body: '{}',
+        });
+        assert.equal(advanced.status, 200);
+        assert.notEqual((await advanced.json()).encounter.turnIndex, encounter.turnIndex);
 });

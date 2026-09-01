@@ -87,6 +87,40 @@ export class AuthStore {
         character_id INTEGER REFERENCES characters(id) ON DELETE SET NULL,
         PRIMARY KEY (party_id, user_id)
       );
+      CREATE TABLE IF NOT EXISTS encounters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        party_id INTEGER NOT NULL REFERENCES parties(id) ON DELETE CASCADE,
+        dm_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('active','completed')),
+        round INTEGER NOT NULL DEFAULT 1,
+        turn_index INTEGER NOT NULL DEFAULT 0,
+        action_taken INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS combatants (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        encounter_id INTEGER NOT NULL REFERENCES encounters(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        source_type TEXT NOT NULL CHECK(source_type IN ('character','monster')),
+        source_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        armor_class INTEGER NOT NULL,
+        max_hp INTEGER NOT NULL,
+        current_hp INTEGER NOT NULL,
+        initiative INTEGER NOT NULL,
+        abilities TEXT NOT NULL,
+        conditions TEXT NOT NULL DEFAULT '[]'
+      );
+      CREATE TABLE IF NOT EXISTS combat_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        encounter_id INTEGER NOT NULL REFERENCES encounters(id) ON DELETE CASCADE,
+        message TEXT NOT NULL,
+        roll_data TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS combatants_encounter ON combatants(encounter_id,initiative DESC);
+      CREATE INDEX IF NOT EXISTS combat_log_encounter ON combat_log(encounter_id,id DESC);
     `);
   }
 
@@ -283,6 +317,151 @@ export class AuthStore {
        LEFT JOIN characters ON characters.id=party_members.character_id WHERE party_members.party_id=?`,
     ).all(id);
     return visibleParty;
+  }
+
+  createEncounter(dmId, partyId, name, monsterIds, rollInitiative) {
+    const party = this.database.prepare('SELECT id FROM parties WHERE id=? AND dm_id=?').get(partyId, dmId);
+    if (!party) return null;
+    const transaction = this.database.transaction(() => {
+      const result = this.database.prepare(
+        `INSERT INTO encounters (party_id,dm_id,name,status,round,turn_index,created_at)
+         VALUES (?,?,?,'active',1,0,?)`,
+      ).run(partyId, dmId, name, Date.now());
+      const encounterId = Number(result.lastInsertRowid);
+      const insert = this.database.prepare(
+        `INSERT INTO combatants (encounter_id,user_id,source_type,source_id,name,armor_class,
+         max_hp,current_hp,initiative,abilities) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      );
+      const characters = this.database.prepare(
+        `SELECT characters.*,party_members.user_id FROM party_members JOIN characters
+         ON characters.id=party_members.character_id WHERE party_members.party_id=?`,
+      ).all(partyId);
+      for (const character of characters) {
+        const abilities = JSON.parse(character.abilities);
+        insert.run(encounterId, character.user_id, 'character', character.id, character.name,
+          character.armor_class, character.hit_points, character.hit_points,
+          rollInitiative(abilities.dexterity), character.abilities);
+      }
+      for (const monsterId of monsterIds) {
+        const monster = this.database.prepare('SELECT * FROM monsters WHERE id=? AND owner_id=?').get(monsterId, dmId);
+        if (!monster) throw new Error('INVALID_MONSTER');
+        const abilities = JSON.parse(monster.abilities);
+        insert.run(encounterId, null, 'monster', monster.id, monster.name, monster.armor_class,
+          monster.hit_points, monster.hit_points, rollInitiative(abilities.dexterity), monster.abilities);
+      }
+      const combatantCount = this.database.prepare(
+        'SELECT COUNT(*) AS count FROM combatants WHERE encounter_id=?',
+      ).get(encounterId).count;
+      if (combatantCount < 2) throw new Error('NOT_ENOUGH_COMBATANTS');
+      this.addCombatLog(encounterId, 'Initiative rolled. Combat begins!');
+      return encounterId;
+    });
+    try {
+      return this.getEncounter(transaction(), dmId);
+    } catch (error) {
+      if (error.message === 'INVALID_MONSTER') return false;
+      if (error.message === 'NOT_ENOUGH_COMBATANTS') return 'NOT_ENOUGH_COMBATANTS';
+      throw error;
+    }
+  }
+
+  listEncounters(userId) {
+    return this.database.prepare(
+      `SELECT DISTINCT encounters.id FROM encounters JOIN parties ON parties.id=encounters.party_id
+       LEFT JOIN party_members ON party_members.party_id=parties.id
+       WHERE encounters.dm_id=? OR party_members.user_id=? ORDER BY encounters.created_at DESC`,
+    ).all(userId, userId).map(({ id }) => this.getEncounter(id, userId));
+  }
+
+  getEncounter(id, userId) {
+    const encounter = this.database.prepare(
+      `SELECT encounters.* FROM encounters JOIN parties ON parties.id=encounters.party_id
+       LEFT JOIN party_members ON party_members.party_id=parties.id
+       WHERE encounters.id=? AND (encounters.dm_id=? OR party_members.user_id=?)`,
+    ).get(id, userId, userId);
+    if (!encounter) return null;
+    const combatants = this.database.prepare(
+      `SELECT id,user_id AS userId,source_type AS sourceType,source_id AS sourceId,name,
+       armor_class AS armorClass,max_hp AS maxHp,current_hp AS currentHp,initiative,
+       abilities,conditions FROM combatants WHERE encounter_id=? ORDER BY initiative DESC,id`,
+    ).all(id).map((row) => ({ ...row, abilities: JSON.parse(row.abilities), conditions: JSON.parse(row.conditions) }));
+    const logs = this.database.prepare(
+      `SELECT id,message,roll_data AS rollData,created_at AS createdAt FROM combat_log
+       WHERE encounter_id=? ORDER BY id DESC LIMIT 50`,
+    ).all(id).map((row) => ({ ...row, rollData: row.rollData ? JSON.parse(row.rollData) : null }));
+    return {
+      id: encounter.id, partyId: encounter.party_id, dmId: encounter.dm_id, name: encounter.name,
+      status: encounter.status, round: encounter.round, turnIndex: encounter.turn_index,
+      actionTaken: Boolean(encounter.action_taken),
+      combatants, logs,
+    };
+  }
+
+  addCombatLog(encounterId, message, rollData = null) {
+    this.database.prepare(
+      'INSERT INTO combat_log (encounter_id,message,roll_data,created_at) VALUES (?,?,?,?)',
+    ).run(encounterId, message, rollData ? JSON.stringify(rollData) : null, Date.now());
+  }
+
+  performCombatAction(encounterId, userId, action, roller) {
+    const encounter = this.getEncounter(encounterId, userId);
+    if (!encounter || encounter.status !== 'active') return null;
+    const actor = encounter.combatants[encounter.turnIndex];
+    if (!actor || (encounter.dmId !== userId && actor.userId !== userId)) return false;
+    if (encounter.actionTaken) return 'ACTION_TAKEN';
+    const target = encounter.combatants.find(({ id }) => id === action.targetId);
+    if (!target) return 'INVALID_TARGET';
+    if ((action.type === 'attack' && actor.sourceType === target.sourceType) ||
+        (action.type === 'heal' && actor.sourceType !== target.sourceType)) return 'INVALID_TARGET';
+    const modifier = Math.floor((actor.abilities[action.ability] - 10) / 2);
+    const roll = roller(20);
+    let message;
+    let rollData;
+    if (action.type === 'attack') {
+      const total = roll + modifier;
+      const hit = roll === 20 || (roll !== 1 && total >= target.armorClass);
+      const damage = hit
+        ? Math.max(1, roller(action.damageDie) + (roll === 20 ? roller(action.damageDie) : 0) + modifier)
+        : 0;
+      this.database.prepare(
+        'UPDATE combatants SET current_hp=MAX(0,current_hp-?) WHERE id=? AND encounter_id=?',
+      ).run(damage, target.id, encounterId);
+      message = `${actor.name} attacks ${target.name}: ${total} to hit — ${hit ? `${damage} damage` : 'miss'}.`;
+      rollData = { type: 'attack', die: roll, modifier, total, hit, damage, critical: roll === 20 };
+    } else {
+      const amount = Math.max(1, roller(action.damageDie) + modifier);
+      this.database.prepare(
+        'UPDATE combatants SET current_hp=MIN(max_hp,current_hp+?) WHERE id=? AND encounter_id=?',
+      ).run(amount, target.id, encounterId);
+      message = `${actor.name} restores ${amount} HP to ${target.name}.`;
+      rollData = { type: 'heal', die: roll, modifier, amount };
+    }
+    this.database.prepare('UPDATE encounters SET action_taken=1 WHERE id=?').run(encounterId);
+    this.addCombatLog(encounterId, message, rollData);
+    return this.getEncounter(encounterId, userId);
+  }
+
+  advanceTurn(encounterId, dmId) {
+    const encounter = this.getEncounter(encounterId, dmId);
+    if (!encounter || encounter.dmId !== dmId || encounter.status !== 'active') return null;
+    let next = encounter.turnIndex;
+    let round = encounter.round;
+    for (let count = 0; count < encounter.combatants.length; count += 1) {
+      next = (next + 1) % encounter.combatants.length;
+      if (next === 0) round += 1;
+      if (encounter.combatants[next].currentHp > 0) break;
+    }
+    this.database.prepare(
+      'UPDATE encounters SET turn_index=?,round=?,action_taken=0 WHERE id=?',
+    ).run(next, round, encounterId);
+    this.addCombatLog(encounterId, `Round ${round}: ${encounter.combatants[next].name}'s turn.`);
+    return this.getEncounter(encounterId, dmId);
+  }
+
+  endEncounter(encounterId, dmId) {
+    return this.database.prepare(
+      `UPDATE encounters SET status='completed' WHERE id=? AND dm_id=? AND status='active'`,
+    ).run(encounterId, dmId).changes;
   }
 
   mapCharacter(row) {
