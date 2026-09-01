@@ -1,37 +1,66 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { of, throwError } from 'rxjs';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './app';
+import { AuthService, AuthUser } from './auth.service';
 
 describe('App', () => {
+  const user = signal<AuthUser | null>(null);
+  const dm: AuthUser = {
+    id: 1,
+    email: 'dm@example.com',
+    displayName: 'Dungeon Guide',
+    role: 'Dungeon Master',
+  };
+  const auth = {
+    user,
+    restoreSession: vi.fn(() => of(null)),
+    login: vi.fn(() => {
+      user.set(dm);
+      return of({ user: dm });
+    }),
+    register: vi.fn(() => of({ user: dm })),
+    logout: vi.fn(() => {
+      user.set(null);
+      return of(undefined);
+    }),
+  };
+
   beforeEach(async () => {
-    await TestBed.configureTestingModule({ imports: [App] }).compileComponents();
+    user.set(null);
+    vi.clearAllMocks();
+    await TestBed.configureTestingModule({
+      imports: [App],
+      providers: [{ provide: AuthService, useValue: auth }],
+    }).compileComponents();
   });
 
   it('renders the campaign landing page', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.querySelector('h1')?.textContent).toContain(
-      'Every legend',
-    );
+    expect(fixture.nativeElement.querySelector('h1')?.textContent).toContain('Every legend');
     expect(fixture.nativeElement.textContent).toContain('Built for 2024 rules');
+    expect(auth.restoreSession).toHaveBeenCalledOnce();
   });
 
-  it('opens the login workflow with the selected role', () => {
+  it('opens account creation with the selected role', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     (fixture.nativeElement.querySelector('.site-header .text-button') as HTMLButtonElement).click();
     fixture.detectChanges();
-
-    const playerButton = Array.from(
-      fixture.nativeElement.querySelectorAll('button'),
-    ).find((button) => (button as HTMLButtonElement).textContent?.includes('Player'));
-    (playerButton as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('.signup button') as HTMLButtonElement).click();
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeTruthy();
-    expect(
-      fixture.nativeElement.querySelectorAll('.role-picker button')[1].classList,
-    ).toContain('selected');
+    const playerButton = fixture.nativeElement.querySelectorAll(
+      '.role-picker button',
+    )[1] as HTMLButtonElement;
+    playerButton.click();
+    fixture.detectChanges();
+
+    expect(playerButton.classList).toContain('selected');
+    expect(fixture.nativeElement.querySelector('#display-name')).toBeTruthy();
   });
 
   it('validates credentials before signing in', () => {
@@ -39,14 +68,13 @@ describe('App', () => {
     fixture.detectChanges();
     (fixture.nativeElement.querySelector('.site-header .text-button') as HTMLButtonElement).click();
     fixture.detectChanges();
-
     (fixture.nativeElement.querySelector('form') as HTMLFormElement).dispatchEvent(
       new Event('submit'),
     );
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelectorAll('.field-error')).toHaveLength(2);
-    expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(auth.login).not.toHaveBeenCalled();
   });
 
   it('closes the login with Escape and returns focus to its trigger', async () => {
@@ -70,7 +98,7 @@ describe('App', () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it('completes login with valid credentials', () => {
+  it('signs in through the authentication service', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     (fixture.nativeElement.querySelector('.site-header .text-button') as HTMLButtonElement).click();
@@ -88,9 +116,36 @@ describe('App', () => {
     );
     fixture.detectChanges();
 
+    expect(auth.login).toHaveBeenCalledWith('dm@example.com', 'roll-for-initiative');
     expect(fixture.nativeElement.querySelector('.welcome')?.textContent).toContain(
       'signed in as a Dungeon Master',
     );
-    expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('shows backend authentication errors', () => {
+    auth.login.mockReturnValueOnce(
+      throwError(() => ({ error: { error: 'Email or password is incorrect.' } })),
+    );
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelector('.site-header .text-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    for (const [selector, value] of [
+      ['#email', 'dm@example.com'],
+      ['#password', 'wrong-password'],
+    ]) {
+      const input = fixture.nativeElement.querySelector(selector) as HTMLInputElement;
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+    }
+    (fixture.nativeElement.querySelector('form') as HTMLFormElement).dispatchEvent(
+      new Event('submit'),
+    );
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[role="alert"]').textContent).toContain(
+      'Email or password is incorrect.',
+    );
   });
 });
