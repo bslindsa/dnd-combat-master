@@ -1,0 +1,158 @@
+<header class="site-header">
+  <a class="brand" href="#" aria-label="Encounter Forge home">
+    <span class="brand-mark" aria-hidden="true">20</span>
+    <span>Encounter <strong>Forge</strong></span>
+  </a>
+  <nav aria-label="Main navigation">
+    <a href="#features">Features</a>
+    <a href="#campaigns">Campaigns</a>
+    <a href="#rules">Rules</a>
+  </nav>
+  @if (authenticated()) {
+    <button class="text-button" type="button" (click)="logOut()">Log out</button>
+  } @else {
+    <button class="text-button" type="button" (click)="openLogin()">Log in</button>
+  }
+</header>
+
+<main>
+  @if (authenticated()) {
+    <app-dashboard [user]="currentUser()!" />
+  } @else {
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Master every encounter</p>
+        <h1>Every legend<br />starts at the <em>table.</em></h1>
+        <p class="hero-lead">
+          Build heroes. Command monsters. Run fast, cinematic combat for D&amp;D 2024 and
+          beyond—all in one beautifully crafted space.
+        </p>
+        <div class="hero-actions">
+          <button class="primary-button" type="button" (click)="openLogin('Dungeon Master')">
+            Start your campaign <span aria-hidden="true">→</span>
+          </button>
+          <a href="#features">Explore features <span aria-hidden="true">↓</span></a>
+        </div>
+        <div class="trust-row">
+          <span><b>✦</b> Built for 2024 rules</span>
+          <span><b>✦</b> Any TTRPG ready</span>
+          <span><b>✦</b> Free to begin</span>
+        </div>
+      </div>
+
+      <div class="encounter-card" role="region" aria-label="Example live encounter">
+        <div class="card-heading">
+          <div>
+            <span class="live-dot"></span>
+            <small>Live encounter</small>
+            <h2>The Crimson Vault</h2>
+          </div>
+          <span class="round">Round 3</span>
+        </div>
+        <div class="initiative">
+          <small>Initiative order</small>
+          <div class="combatant active">
+            <span class="initiative-roll">18</span>
+            <span class="avatar gold">A</span>
+            <span><b>Aelindra</b><small>High Elf Wizard · Your turn</small></span>
+            <span class="hp"><b>32 / 38</b><small>HP</small></span>
+          </div>
+          <div class="combatant">
+            <span class="initiative-roll">15</span>
+            <span class="avatar red">D</span>
+            <span><b>Ancient Drake</b><small>Gargantuan Dragon</small></span>
+            <span class="hp danger"><b>187 / 245</b><small>HP</small></span>
+          </div>
+          <div class="combatant">
+            <span class="initiative-roll">12</span>
+            <span class="avatar blue">T</span>
+            <span><b>Thorne</b><small>Human Paladin</small></span>
+            <span class="hp"><b>51 / 51</b><small>HP</small></span>
+          </div>
+        </div>
+        <div class="action-prompt">
+          <small>Choose your action</small>
+          <div>
+            <button type="button"><span>✦</span> Cast spell</button>
+            <button type="button"><span>⚔</span> Attack</button>
+            <button type="button"><span>➶</span> More</button>
+          </div>
+        </div>
+        <div class="dice-result">
+          <span class="die" aria-hidden="true">20</span>
+          <span><small>Last roll</small><b>Fire Bolt · 24 to hit</b></span>
+          <strong>17 <small>fire damage</small></strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="feature-strip" id="features" aria-label="Key features">
+      <article><span>⚔</span><div><b>Effortless combat</b><small>Actions, rolls &amp; effects automated</small></div></article>
+      <article><span>♙</span><div><b>Heroes &amp; monsters</b><small>Create any stat block with ease</small></div></article>
+      <article><span>✥</span><div><b>Play together</b><small>Invite your party in seconds</small></div></article>
+      <article><span>⚄</span><div><b>Shared dice rolls</b><small>Every roll visible in real time</small></div></article>
+    </section>
+
+    <section class="coming-soon" id="campaigns">
+      <p class="eyebrow">One table, endless worlds</p>
+      <h2>Everything your party needs.</h2>
+      <p>Character building, monster libraries, and guided combat are being forged for your next campaign.</p>
+    </section>
+  }
+</main>
+
+@if (loginOpen()) {
+  <div class="modal-backdrop" (click)="closeLogin()" (keydown.escape)="closeLogin()">
+    <section #loginDialog class="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title" tabindex="-1" (click)="$event.stopPropagation()">
+      <button class="close-button" type="button" aria-label="Close login" (click)="closeLogin()">×</button>
+      <span class="modal-mark" aria-hidden="true">20</span>
+      <p class="eyebrow">Return to the table</p>
+      <h2 id="login-title">Welcome, adventurer.</h2>
+      <p>{{ creatingAccount() ? 'Create your account and begin your story.' : 'Sign in to continue your story.' }}</p>
+
+      @if (creatingAccount()) {
+      <div class="role-picker" role="group" aria-label="Choose your role">
+        <button type="button" [class.selected]="role() === 'Dungeon Master'" (click)="selectRole('Dungeon Master')">
+          <span>♜</span><b>Dungeon Master</b><small>Build worlds &amp; run encounters</small>
+        </button>
+        <button type="button" [class.selected]="role() === 'Player'" (click)="selectRole('Player')">
+          <span>♞</span><b>Player</b><small>Create heroes &amp; join a party</small>
+        </button>
+      </div>
+      }
+
+      <form [formGroup]="loginForm" (ngSubmit)="logIn()" novalidate>
+        @if (creatingAccount()) {
+          <label for="display-name">Display name</label>
+          <input id="display-name" type="text" formControlName="displayName" autocomplete="name" placeholder="How your party knows you" />
+          @if (loginForm.controls.displayName.touched && (loginForm.controls.displayName.value.trim().length < 2 || loginForm.controls.displayName.value.trim().length > 60)) {
+            <small class="field-error">Display name must be between 2 and 60 characters.</small>
+          }
+        }
+        <label for="email">Email address</label>
+        <input id="email" type="email" formControlName="email" autocomplete="email" placeholder="you@example.com" />
+        @if (loginForm.controls.email.touched && loginForm.controls.email.invalid) {
+          <small class="field-error">Enter a valid email address.</small>
+        }
+        <label for="password">Password</label>
+        <input id="password" type="password" formControlName="password" [attr.autocomplete]="creatingAccount() ? 'new-password' : 'current-password'" placeholder="At least 8 characters" />
+        @if (loginForm.controls.password.touched && loginForm.controls.password.invalid) {
+          <small class="field-error">Password must be at least 8 characters.</small>
+        }
+        @if (authError()) {
+          <p class="auth-error" role="alert">{{ authError() }}</p>
+        }
+        <button class="primary-button login-button" type="submit" [disabled]="submitting()">
+          {{ submitting() ? 'Opening the gates…' : (creatingAccount() ? 'Create account' : 'Enter the forge') }}
+          <span aria-hidden="true">→</span>
+        </button>
+      </form>
+      <p class="signup">
+        {{ creatingAccount() ? 'Already have an account?' : 'New to Encounter Forge?' }}
+        <button type="button" (click)="toggleAccountMode()">
+          {{ creatingAccount() ? 'Sign in' : 'Create an account' }}
+        </button>
+      </p>
+    </section>
+  </div>
+}
