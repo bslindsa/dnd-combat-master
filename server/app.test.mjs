@@ -35,6 +35,11 @@ after(async () => {
   closeStore();
 });
 
+test('protects management routes without authentication', async () => {
+  const response = await fetch(`${baseUrl}/api/characters`);
+  assert.equal(response.status, 401);
+});
+
 test('registers a user and restores the cookie session', async () => {
   const registration = await fetch(`${baseUrl}/api/auth/register`, {
     method: 'POST',

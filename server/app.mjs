@@ -167,8 +167,10 @@ export function createAuthApp({
       secure: secureCookies,
       path: '/',
     });
+    return response.status(204).send();
+  });
 
-    app.get('/api/characters', requireUser, (request, response) =>
+  app.get('/api/characters', requireUser, (request, response) =>
       response.json({ characters: store.listCharacters(request.user.id) }));
     app.post('/api/characters', requireUser, (request, response) => {
       const result = validateCreature(request.body ?? {});
@@ -221,9 +223,6 @@ export function createAuthApp({
       if (party === false) return response.status(400).json({ error: 'Choose one of your own characters.' });
       return party ? response.json({ party }) : response.status(404).json({ error: 'Invite code not found.' });
     });
-    return response.status(204).send();
-  });
-
   app.use((error, _request, response, _next) => {
     console.error(error);
     response.status(500).json({ error: 'Unable to complete the request.' });
