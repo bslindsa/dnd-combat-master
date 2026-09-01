@@ -256,13 +256,15 @@ export class AuthStore {
        (SELECT 1 FROM party_members WHERE party_id=parties.id AND user_id=?))`,
     ).get(id, viewerId, viewerId);
     if (!party) return null;
-    if (party.dmId !== viewerId) delete party.inviteCode;
-    party.members = this.database.prepare(
+    const visibleParty = party.dmId === viewerId
+      ? party
+      : (({ inviteCode: _, ...withoutInvite }) => withoutInvite)(party);
+    visibleParty.members = this.database.prepare(
       `SELECT users.id,users.display_name AS displayName,characters.id AS characterId,
        characters.name AS characterName FROM party_members JOIN users ON users.id=party_members.user_id
        LEFT JOIN characters ON characters.id=party_members.character_id WHERE party_members.party_id=?`,
     ).all(id);
-    return party;
+    return visibleParty;
   }
 
   mapCharacter(row) {

@@ -1,5 +1,6 @@
-import { Component, inject, input, signal } from '@angular/core';
+import { Component, DestroyRef, inject, input, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AuthUser } from '../auth.service';
 import { Character, GameService, Monster, Party } from '../game.service';
 
@@ -21,6 +22,7 @@ const abilities = () => ({
 export class Dashboard {
   readonly user = input.required<AuthUser>();
   private readonly game = inject(GameService);
+  private readonly destroyRef = inject(DestroyRef);
   protected readonly tab = signal<'characters' | 'monsters' | 'party'>('characters');
   protected readonly characters = signal<Character[]>([]);
   protected readonly monsters = signal<Monster[]>([]);
@@ -50,9 +52,13 @@ export class Dashboard {
   constructor() { this.reload(); }
 
   protected reload() {
-    this.game.listCharacters().subscribe(({ characters }) => this.characters.set(characters));
-    this.game.listMonsters().subscribe(({ monsters }) => this.monsters.set(monsters));
-    this.game.listParties().subscribe(({ parties }) => this.parties.set(parties));
+    const failure = () => this.message.set('Some campaign data could not be loaded.');
+    this.game.listCharacters().pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: ({ characters }) => this.characters.set(characters), error: failure });
+    this.game.listMonsters().pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: ({ monsters }) => this.monsters.set(monsters), error: failure });
+    this.game.listParties().pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: ({ parties }) => this.parties.set(parties), error: failure });
   }
 
   protected editCharacter(character?: Character) {

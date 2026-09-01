@@ -56,25 +56,38 @@
   }
 </section>
 
-@if (editingCharacter() || editingMonster()) {
+@if (editingCharacter()) {
   <div class="editor-backdrop">
-    <form class="editor" [formGroup]="editingCharacter() ? characterForm : monsterForm" (ngSubmit)="editingCharacter() ? saveCharacter() : saveMonster()">
-      <h2>{{ editingCharacter() ? 'Character builder' : 'Monster stat block' }}</h2>
+    <form class="editor" [formGroup]="characterForm" (ngSubmit)="saveCharacter()">
+      <h2>Character builder</h2>
       <label>Name<input formControlName="name" /></label>
       <div class="row">
-        @if (editingCharacter()) {
-          <label>Class<input formControlName="className" /></label><label>Species<input formControlName="species" /></label><label>Level<input type="number" formControlName="level" /></label>
-        } @else {
-          <label>Size<select formControlName="size"><option>Tiny</option><option>Small</option><option>Medium</option><option>Large</option><option>Huge</option><option>Gargantuan</option></select></label>
-          <label>Type<input formControlName="creatureType" /></label><label>CR<input formControlName="challengeRating" /></label>
-        }
+        <label>Class<input formControlName="className" /></label><label>Species<input formControlName="species" /></label><label>Level<input type="number" formControlName="level" /></label>
       </div>
       <div class="row"><label>Armor class<input type="number" formControlName="armorClass" /></label><label>Hit points<input type="number" formControlName="hitPoints" /></label><label>Speed<input type="number" formControlName="speed" /></label></div>
       <fieldset formGroupName="abilities"><legend>Ability scores</legend><div class="ability-row">
         @for (ability of ['strength','dexterity','constitution','intelligence','wisdom','charisma']; track ability) { <label>{{ ability.slice(0,3) }}<input type="number" [formControlName]="ability" /></label> }
       </div></fieldset>
-      <label>{{ editingCharacter() ? 'Notes' : 'Actions' }}<textarea [formControlName]="editingCharacter() ? 'notes' : 'actions'" rows="4"></textarea></label>
-      <footer><button type="button" (click)="editingCharacter.set(false); editingMonster.set(false)">Cancel</button><button class="gold">Save</button></footer>
+      <label>Notes<textarea formControlName="notes" rows="4"></textarea></label>
+      <footer><button type="button" (click)="editingCharacter.set(false)">Cancel</button><button class="gold">Save</button></footer>
+    </form>
+  </div>
+}
+@if (editingMonster()) {
+  <div class="editor-backdrop">
+    <form class="editor" [formGroup]="monsterForm" (ngSubmit)="saveMonster()">
+      <h2>Monster stat block</h2>
+      <label>Name<input formControlName="name" /></label>
+      <div class="row">
+        <label>Size<select formControlName="size"><option>Tiny</option><option>Small</option><option>Medium</option><option>Large</option><option>Huge</option><option>Gargantuan</option></select></label>
+        <label>Type<input formControlName="creatureType" /></label><label>CR<input formControlName="challengeRating" /></label>
+      </div>
+      <div class="row"><label>Armor class<input type="number" formControlName="armorClass" /></label><label>Hit points<input type="number" formControlName="hitPoints" /></label><label>Speed<input type="number" formControlName="speed" /></label></div>
+      <fieldset formGroupName="abilities"><legend>Ability scores</legend><div class="ability-row">
+        @for (ability of ['strength','dexterity','constitution','intelligence','wisdom','charisma']; track ability) { <label>{{ ability.slice(0,3) }}<input type="number" [formControlName]="ability" /></label> }
+      </div></fieldset>
+      <label>Actions<textarea formControlName="actions" rows="4"></textarea></label>
+      <footer><button type="button" (click)="editingMonster.set(false)">Cancel</button><button class="gold">Save</button></footer>
     </form>
   </div>
 }
