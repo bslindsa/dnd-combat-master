@@ -17,12 +17,7 @@
 
 <main>
   @if (authenticated()) {
-    <section class="welcome" aria-live="polite">
-      <p class="eyebrow">The adventure begins</p>
-      <h1>Welcome to the table.</h1>
-      <p>You are signed in as a {{ currentUser()?.role }}. Your campaign dashboard is ready to be forged.</p>
-      <button class="primary-button" type="button">Enter dashboard <span aria-hidden="true">→</span></button>
-    </section>
+    <app-dashboard [user]="currentUser()!" />
   } @else {
     <section class="hero">
       <div class="hero-copy">

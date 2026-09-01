@@ -1,0 +1,80 @@
+<section class="dashboard">
+  <div class="dashboard-heading">
+    <div><p class="kicker">Campaign workspace</p><h1>Welcome, {{ user().displayName }}</h1></div>
+    <span class="role">{{ user().role }}</span>
+  </div>
+  <nav class="tabs" aria-label="Workspace">
+    <button [class.active]="tab() === 'characters'" (click)="tab.set('characters')">Characters</button>
+    @if (user().role === 'Dungeon Master') {
+      <button [class.active]="tab() === 'monsters'" (click)="tab.set('monsters')">Monster library</button>
+    }
+    <button [class.active]="tab() === 'party'" (click)="tab.set('party')">Party</button>
+  </nav>
+  @if (message()) { <p class="notice" role="status">{{ message() }}</p> }
+
+  @if (tab() === 'characters') {
+    <div class="section-title"><div><h2>Your heroes</h2><p>Build characters ready for D&amp;D 2024 encounters.</p></div>
+      <button class="gold" (click)="editCharacter()">+ New character</button></div>
+    <div class="card-grid">
+      @for (character of characters(); track character.id) {
+        <article class="sheet"><small>Level {{ character.level }} {{ character.species }}</small><h3>{{ character.name }}</h3>
+          <p>{{ character.className }}</p><div class="stats"><b>AC {{ character.armorClass }}</b><b>HP {{ character.hitPoints }}</b><b>{{ character.speed }} ft</b></div>
+          <footer><button (click)="editCharacter(character)">Edit</button><button (click)="removeCharacter(character)">Delete</button></footer></article>
+      } @empty { <p class="empty">No heroes yet. Forge your first character.</p> }
+    </div>
+  }
+
+  @if (tab() === 'monsters' && user().role === 'Dungeon Master') {
+    <div class="section-title"><div><h2>Monster library</h2><p>Create reusable stat blocks for your encounters.</p></div>
+      <button class="gold" (click)="editMonster()">+ New monster</button></div>
+    <div class="card-grid">
+      @for (monster of monsters(); track monster.id) {
+        <article class="sheet monster"><small>CR {{ monster.challengeRating }} · {{ monster.size }} {{ monster.creatureType }}</small><h3>{{ monster.name }}</h3>
+          <div class="stats"><b>AC {{ monster.armorClass }}</b><b>HP {{ monster.hitPoints }}</b><b>{{ monster.speed }} ft</b></div>
+          <p>{{ monster.actions || 'No actions recorded.' }}</p><footer><button (click)="editMonster(monster)">Edit</button><button (click)="removeMonster(monster)">Delete</button></footer></article>
+      } @empty { <p class="empty">Your monster library is empty.</p> }
+    </div>
+  }
+
+  @if (tab() === 'party') {
+    <div class="party-tools">
+      @if (user().role === 'Dungeon Master') {
+        <form (ngSubmit)="createParty()"><h2>Create a party</h2><input [formControl]="partyName" placeholder="Party name" /><button class="gold">Create</button></form>
+      } @else {
+        <form (ngSubmit)="joinParty()"><h2>Join your DM</h2><input [formControl]="inviteCode" placeholder="Invite code" />
+          <select [formControl]="partyCharacter"><option [ngValue]="null">No character yet</option>@for (character of characters(); track character.id) { <option [ngValue]="character.id">{{ character.name }}</option> }</select>
+          <button class="gold">Join party</button></form>
+      }
+    </div>
+    <div class="card-grid">
+      @for (party of parties(); track party.id) {
+        <article class="sheet party"><small>Dungeon Master · {{ party.dmName }}</small><h3>{{ party.name }}</h3>
+          @if (party.dmId === user().id) { <p class="invite">Invite code <strong>{{ party.inviteCode }}</strong></p> }
+          <ul>@for (member of party.members; track member.id) { <li>{{ member.displayName }} <span>{{ member.characterName || 'Choosing a hero' }}</span></li> }</ul></article>
+      } @empty { <p class="empty">You are not in a party yet.</p> }
+    </div>
+  }
+</section>
+
+@if (editingCharacter() || editingMonster()) {
+  <div class="editor-backdrop">
+    <form class="editor" [formGroup]="editingCharacter() ? characterForm : monsterForm" (ngSubmit)="editingCharacter() ? saveCharacter() : saveMonster()">
+      <h2>{{ editingCharacter() ? 'Character builder' : 'Monster stat block' }}</h2>
+      <label>Name<input formControlName="name" /></label>
+      <div class="row">
+        @if (editingCharacter()) {
+          <label>Class<input formControlName="className" /></label><label>Species<input formControlName="species" /></label><label>Level<input type="number" formControlName="level" /></label>
+        } @else {
+          <label>Size<select formControlName="size"><option>Tiny</option><option>Small</option><option>Medium</option><option>Large</option><option>Huge</option><option>Gargantuan</option></select></label>
+          <label>Type<input formControlName="creatureType" /></label><label>CR<input formControlName="challengeRating" /></label>
+        }
+      </div>
+      <div class="row"><label>Armor class<input type="number" formControlName="armorClass" /></label><label>Hit points<input type="number" formControlName="hitPoints" /></label><label>Speed<input type="number" formControlName="speed" /></label></div>
+      <fieldset formGroupName="abilities"><legend>Ability scores</legend><div class="ability-row">
+        @for (ability of ['strength','dexterity','constitution','intelligence','wisdom','charisma']; track ability) { <label>{{ ability.slice(0,3) }}<input type="number" [formControlName]="ability" /></label> }
+      </div></fieldset>
+      <label>{{ editingCharacter() ? 'Notes' : 'Actions' }}<textarea [formControlName]="editingCharacter() ? 'notes' : 'actions'" rows="4"></textarea></label>
+      <footer><button type="button" (click)="editingCharacter.set(false); editingMonster.set(false)">Cancel</button><button class="gold">Save</button></footer>
+    </form>
+  </div>
+}

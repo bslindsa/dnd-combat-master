@@ -47,6 +47,46 @@ export class AuthStore {
         expires_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS sessions_expires_at ON sessions(expires_at);
+      CREATE TABLE IF NOT EXISTS characters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        class_name TEXT NOT NULL,
+        species TEXT NOT NULL,
+        level INTEGER NOT NULL,
+        armor_class INTEGER NOT NULL,
+        hit_points INTEGER NOT NULL,
+        speed INTEGER NOT NULL,
+        abilities TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS monsters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        size TEXT NOT NULL,
+        creature_type TEXT NOT NULL,
+        armor_class INTEGER NOT NULL,
+        hit_points INTEGER NOT NULL,
+        speed INTEGER NOT NULL,
+        challenge_rating TEXT NOT NULL,
+        abilities TEXT NOT NULL,
+        actions TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS parties (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        dm_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        invite_code TEXT NOT NULL UNIQUE
+      );
+      CREATE TABLE IF NOT EXISTS party_members (
+        party_id INTEGER NOT NULL REFERENCES parties(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        character_id INTEGER REFERENCES characters(id) ON DELETE SET NULL,
+        PRIMARY KEY (party_id, user_id)
+      );
     `);
   }
 
@@ -106,6 +146,141 @@ export class AuthStore {
 
   deleteSession(token) {
     if (token) this.database.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hashToken(token));
+  }
+
+  listCharacters(userId) {
+    return this.database
+      .prepare('SELECT * FROM characters WHERE owner_id = ? ORDER BY updated_at DESC')
+      .all(userId)
+      .map(this.mapCharacter);
+  }
+
+  saveCharacter(userId, character, id = null) {
+    const values = [
+      character.name, character.className, character.species, character.level,
+      character.armorClass, character.hitPoints, character.speed,
+      JSON.stringify(character.abilities), character.notes, Date.now(),
+    ];
+    if (id) {
+      const result = this.database.prepare(
+        `UPDATE characters SET name=?, class_name=?, species=?, level=?, armor_class=?,
+         hit_points=?, speed=?, abilities=?, notes=?, updated_at=? WHERE id=? AND owner_id=?`,
+      ).run(...values, id, userId);
+      return result.changes ? this.findCharacter(id) : null;
+    }
+    const result = this.database.prepare(
+      `INSERT INTO characters (name,class_name,species,level,armor_class,hit_points,speed,
+       abilities,notes,updated_at,owner_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(...values, userId);
+    return this.findCharacter(Number(result.lastInsertRowid));
+  }
+
+  findCharacter(id) {
+    const row = this.database.prepare('SELECT * FROM characters WHERE id=?').get(id);
+    return row ? this.mapCharacter(row) : null;
+  }
+
+  deleteCharacter(userId, id) {
+    return this.database.prepare('DELETE FROM characters WHERE id=? AND owner_id=?').run(id, userId).changes;
+  }
+
+  listMonsters(userId) {
+    return this.database
+      .prepare('SELECT * FROM monsters WHERE owner_id=? ORDER BY updated_at DESC')
+      .all(userId)
+      .map(this.mapMonster);
+  }
+
+  saveMonster(userId, monster, id = null) {
+    const values = [
+      monster.name, monster.size, monster.creatureType, monster.armorClass,
+      monster.hitPoints, monster.speed, monster.challengeRating,
+      JSON.stringify(monster.abilities), monster.actions, Date.now(),
+    ];
+    if (id) {
+      const result = this.database.prepare(
+        `UPDATE monsters SET name=?,size=?,creature_type=?,armor_class=?,hit_points=?,
+         speed=?,challenge_rating=?,abilities=?,actions=?,updated_at=? WHERE id=? AND owner_id=?`,
+      ).run(...values, id, userId);
+      return result.changes ? this.findMonster(id) : null;
+    }
+    const result = this.database.prepare(
+      `INSERT INTO monsters (name,size,creature_type,armor_class,hit_points,speed,
+       challenge_rating,abilities,actions,updated_at,owner_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(...values, userId);
+    return this.findMonster(Number(result.lastInsertRowid));
+  }
+
+  findMonster(id) {
+    const row = this.database.prepare('SELECT * FROM monsters WHERE id=?').get(id);
+    return row ? this.mapMonster(row) : null;
+  }
+
+  deleteMonster(userId, id) {
+    return this.database.prepare('DELETE FROM monsters WHERE id=? AND owner_id=?').run(id, userId).changes;
+  }
+
+  createParty(dmId, name, inviteCode) {
+    const result = this.database
+      .prepare('INSERT INTO parties (dm_id,name,invite_code) VALUES (?,?,?)')
+      .run(dmId, name, inviteCode);
+    return this.findParty(Number(result.lastInsertRowid), dmId);
+  }
+
+  joinParty(userId, inviteCode, characterId) {
+    const party = this.database.prepare('SELECT id FROM parties WHERE invite_code=?').get(inviteCode);
+    if (!party) return null;
+    if (characterId && !this.database.prepare('SELECT id FROM characters WHERE id=? AND owner_id=?').get(characterId, userId)) {
+      return false;
+    }
+    this.database.prepare(
+      `INSERT INTO party_members (party_id,user_id,character_id) VALUES (?,?,?)
+       ON CONFLICT(party_id,user_id) DO UPDATE SET character_id=excluded.character_id`,
+    ).run(party.id, userId, characterId || null);
+    return this.findParty(party.id, userId);
+  }
+
+  listParties(userId) {
+    const rows = this.database.prepare(
+      `SELECT DISTINCT parties.id FROM parties LEFT JOIN party_members ON party_members.party_id=parties.id
+       WHERE parties.dm_id=? OR party_members.user_id=? ORDER BY parties.id DESC`,
+    ).all(userId, userId);
+    return rows.map(({ id }) => this.findParty(id, userId));
+  }
+
+  findParty(id, viewerId) {
+    const party = this.database.prepare(
+      `SELECT parties.id,parties.name,parties.invite_code AS inviteCode,parties.dm_id AS dmId,
+       users.display_name AS dmName FROM parties JOIN users ON users.id=parties.dm_id
+       WHERE parties.id=? AND (parties.dm_id=? OR EXISTS
+       (SELECT 1 FROM party_members WHERE party_id=parties.id AND user_id=?))`,
+    ).get(id, viewerId, viewerId);
+    if (!party) return null;
+    if (party.dmId !== viewerId) delete party.inviteCode;
+    party.members = this.database.prepare(
+      `SELECT users.id,users.display_name AS displayName,characters.id AS characterId,
+       characters.name AS characterName FROM party_members JOIN users ON users.id=party_members.user_id
+       LEFT JOIN characters ON characters.id=party_members.character_id WHERE party_members.party_id=?`,
+    ).all(id);
+    return party;
+  }
+
+  mapCharacter(row) {
+    return {
+      id: row.id, ownerId: row.owner_id, name: row.name, className: row.class_name,
+      species: row.species, level: row.level, armorClass: row.armor_class,
+      hitPoints: row.hit_points, speed: row.speed, abilities: JSON.parse(row.abilities),
+      notes: row.notes,
+    };
+  }
+
+  mapMonster(row) {
+    return {
+      id: row.id, ownerId: row.owner_id, name: row.name, size: row.size,
+      creatureType: row.creature_type, armorClass: row.armor_class,
+      hitPoints: row.hit_points, speed: row.speed, challengeRating: row.challenge_rating,
+      abilities: JSON.parse(row.abilities), actions: row.actions,
+    };
   }
 
   close() {

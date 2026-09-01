@@ -3,9 +3,10 @@ import { Component, ElementRef, computed, inject, signal, viewChild } from '@ang
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { finalize } from 'rxjs';
 import { AuthService, Role } from './auth.service';
+import { Dashboard } from './dashboard/dashboard';
 
 @Component({
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, Dashboard],
   selector: 'app-root',
   styleUrl: './app.scss',
   templateUrl: './app.html',

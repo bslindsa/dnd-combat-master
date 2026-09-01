@@ -5,6 +5,22 @@ import { createAuthApp } from './app.mjs';
 let server;
 let closeStore;
 let baseUrl;
+const abilityScores = {
+  strength: 10, dexterity: 14, constitution: 12,
+  intelligence: 16, wisdom: 11, charisma: 8,
+};
+
+async function register(email, role = 'Player') {
+  const response = await fetch(`${baseUrl}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      email, displayName: email.split('@')[0], password: 'roll-for-initiative', role,
+    }),
+  });
+  assert.equal(response.status, 201);
+  return response.headers.get('set-cookie').split(';')[0];
+}
 
 before(async () => {
   const auth = createAuthApp({ databasePath: ':memory:' });
@@ -112,4 +128,82 @@ test('rejects malformed and cross-origin mutation requests', async () => {
     });
     assert.equal(response.status, 403);
   }
+});
+
+test('creates, updates, and isolates owned characters', async () => {
+      const ownerCookie = await register('hero-owner@example.com');
+      const otherCookie = await register('other-player@example.com');
+      const character = {
+        name: 'Aelindra', className: 'Wizard', species: 'Elf', level: 5,
+        armorClass: 15, hitPoints: 32, speed: 30, abilities: abilityScores, notes: 'Evoker',
+      };
+      const created = await fetch(`${baseUrl}/api/characters`, {
+        method: 'POST', headers: { 'content-type': 'application/json', cookie: ownerCookie },
+        body: JSON.stringify(character),
+      });
+      assert.equal(created.status, 201);
+      const id = (await created.json()).character.id;
+
+      const updated = await fetch(`${baseUrl}/api/characters/${id}`, {
+        method: 'PUT', headers: { 'content-type': 'application/json', cookie: ownerCookie },
+        body: JSON.stringify({ ...character, level: 6 }),
+      });
+      assert.equal((await updated.json()).character.level, 6);
+
+      const forbidden = await fetch(`${baseUrl}/api/characters/${id}`, {
+        method: 'DELETE', headers: { cookie: otherCookie },
+      });
+      assert.equal(forbidden.status, 404);
+      const list = await fetch(`${baseUrl}/api/characters`, { headers: { cookie: ownerCookie } });
+      assert.equal((await list.json()).characters.length, 1);
+});
+
+test('allows only dungeon masters to manage monster stat blocks', async () => {
+      const playerCookie = await register('monster-player@example.com');
+      const dmCookie = await register('monster-dm@example.com', 'Dungeon Master');
+      const monster = {
+        name: 'Young Ember Drake', size: 'Large', creatureType: 'Dragon',
+        challengeRating: '6', armorClass: 17, hitPoints: 110, speed: 40,
+        abilities: { ...abilityScores, strength: 19 }, actions: 'Multiattack; Flame Breath.',
+      };
+      const forbidden = await fetch(`${baseUrl}/api/monsters`, {
+        method: 'POST', headers: { 'content-type': 'application/json', cookie: playerCookie },
+        body: JSON.stringify(monster),
+      });
+      assert.equal(forbidden.status, 403);
+
+      const created = await fetch(`${baseUrl}/api/monsters`, {
+        method: 'POST', headers: { 'content-type': 'application/json', cookie: dmCookie },
+        body: JSON.stringify(monster),
+      });
+      assert.equal(created.status, 201);
+      assert.equal((await created.json()).monster.name, monster.name);
+});
+
+test('creates a party and lets a player join with an owned character', async () => {
+      const dmCookie = await register('party-dm@example.com', 'Dungeon Master');
+      const playerCookie = await register('party-player@example.com');
+      const characterResponse = await fetch(`${baseUrl}/api/characters`, {
+        method: 'POST', headers: { 'content-type': 'application/json', cookie: playerCookie },
+        body: JSON.stringify({
+          name: 'Thorne', className: 'Paladin', species: 'Human', level: 4,
+          armorClass: 18, hitPoints: 41, speed: 30, abilities: abilityScores, notes: '',
+        }),
+      });
+      const characterId = (await characterResponse.json()).character.id;
+      const createParty = await fetch(`${baseUrl}/api/parties`, {
+        method: 'POST', headers: { 'content-type': 'application/json', cookie: dmCookie },
+        body: JSON.stringify({ name: 'The Dawn Guard' }),
+      });
+      const party = (await createParty.json()).party;
+
+      const join = await fetch(`${baseUrl}/api/parties/join`, {
+        method: 'POST', headers: { 'content-type': 'application/json', cookie: playerCookie },
+        body: JSON.stringify({ inviteCode: party.inviteCode, characterId }),
+      });
+      assert.equal(join.status, 200);
+      assert.equal((await join.json()).party.members[0].characterName, 'Thorne');
+
+      const dmParties = await fetch(`${baseUrl}/api/parties`, { headers: { cookie: dmCookie } });
+      assert.equal((await dmParties.json()).parties[0].members[0].displayName, 'party-player');
 });

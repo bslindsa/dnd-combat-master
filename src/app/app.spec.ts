@@ -4,6 +4,7 @@ import { of, throwError } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './app';
 import { AuthService, AuthUser } from './auth.service';
+import { GameService } from './game.service';
 
 describe('App', () => {
   const user = signal<AuthUser | null>(null);
@@ -26,13 +27,21 @@ describe('App', () => {
       return of(undefined);
     }),
   };
+  const game = {
+    listCharacters: vi.fn(() => of({ characters: [] })),
+    listMonsters: vi.fn(() => of({ monsters: [] })),
+    listParties: vi.fn(() => of({ parties: [] })),
+  };
 
   beforeEach(async () => {
     user.set(null);
     vi.clearAllMocks();
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [{ provide: AuthService, useValue: auth }],
+      providers: [
+        { provide: AuthService, useValue: auth },
+        { provide: GameService, useValue: game },
+      ],
     }).compileComponents();
   });
 
@@ -117,9 +126,7 @@ describe('App', () => {
     fixture.detectChanges();
 
     expect(auth.login).toHaveBeenCalledWith('dm@example.com', 'roll-for-initiative');
-    expect(fixture.nativeElement.querySelector('.welcome')?.textContent).toContain(
-      'signed in as a Dungeon Master',
-    );
+    expect(fixture.nativeElement.querySelector('app-dashboard')).toBeTruthy();
   });
 
   it('shows backend authentication errors', () => {
