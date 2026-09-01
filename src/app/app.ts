@@ -1,4 +1,5 @@
-import { Component, signal } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
+import { Component, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 
 type Role = 'Dungeon Master' | 'Player';
@@ -10,6 +11,10 @@ type Role = 'Dungeon Master' | 'Player';
   templateUrl: './app.html',
 })
 export class App {
+  private readonly document = inject(DOCUMENT);
+  private readonly loginDialog = viewChild<ElementRef<HTMLElement>>('loginDialog');
+  private previousFocus: HTMLElement | null = null;
+
   protected readonly loginOpen = signal(false);
   protected readonly authenticated = signal(false);
   protected readonly role = signal<Role>('Dungeon Master');
@@ -22,12 +27,15 @@ export class App {
   });
 
   protected openLogin(role: Role = 'Dungeon Master'): void {
+    this.previousFocus = this.document.activeElement as HTMLElement | null;
     this.role.set(role);
     this.loginOpen.set(true);
+    queueMicrotask(() => this.loginDialog()?.nativeElement.focus());
   }
 
   protected closeLogin(): void {
     this.loginOpen.set(false);
+    queueMicrotask(() => this.previousFocus?.focus());
   }
 
   protected selectRole(role: Role): void {

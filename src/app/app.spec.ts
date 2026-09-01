@@ -49,6 +49,27 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeTruthy();
   });
 
+  it('closes the login with Escape and returns focus to its trigger', async () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const trigger = fixture.nativeElement.querySelector(
+      '.site-header .text-button',
+    ) as HTMLButtonElement;
+    trigger.focus();
+    trigger.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const dialog = fixture.nativeElement.querySelector('[role="dialog"]') as HTMLElement;
+    expect(document.activeElement).toBe(dialog);
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it('completes login with valid credentials', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
